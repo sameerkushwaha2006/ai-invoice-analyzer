@@ -48,7 +48,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key")
 ALGORITHM = "HS256"
 MONGO_URI = os.getenv("MONGO_URI")
 db_client = AsyncIOMotorClient(MONGO_URI)
@@ -97,7 +97,7 @@ def analyze_invoice_with_groq(invoice_text: str):
             {"role": "system", "content": prompt},
             {"role": "user", "content": f"Here is the invoice text: \n\n{invoice_text}"}
         ],
-        model="llama-3.3-70b-versatile", 
+        model="qwen/qwen3.8-27b", 
         response_format={"type": "json_object"}, 
         temperature=0.0 
     )
@@ -190,6 +190,40 @@ async def login(user: UserLogin):
         "name": db_user["name"]
     }
 
+@app.get("/dashboard-stats")
+async def get_dashboard_stats(batch_id: str = None):
+    if not batch_id:
+        return {"total_expense": 0, "total_tax": 0, "category_summary": {}, "merchant_summary": {}}
+    
+    try:
+        query = {"batch_id": batch_id}
+        cursor = collection.find(query, {"_id": 0})
+        invoices = await cursor.to_list(length=None)
+        
+        if not invoices:
+            return {"total_expense": 0, "total_tax": 0, "category_summary": {}, "merchant_summary": {}}
+            
+        df = pd.DataFrame(invoices)
+        df['total_amount'] = pd.to_numeric(df['total_amount'], errors='coerce').fillna(0)
+        df['tax_amount'] = pd.to_numeric(df['tax_amount'], errors='coerce').fillna(0)
+        df['category'] = df['category'].fillna("Others")
+        df['merchant_name'] = df['merchant_name'].fillna("Unknown")
+        
+        total_expense = float(df['total_amount'].sum())
+        total_tax = float(df['tax_amount'].sum())
+        category_sum = df.groupby('category')['total_amount'].sum().to_dict()
+        merchant_count = df.groupby('merchant_name').size().to_dict()
+        
+        return {
+            "total_expense": total_expense,
+            "total_tax": total_tax,
+            "category_summary": category_sum,
+            "merchant_summary": merchant_count
+        }
+    except Exception as e:
+        print(f"Error in dashboard-stats: {e}")
+        return {"total_expense": 0, "total_tax": 0, "category_summary": {}, "merchant_summary": {}}
+
 @app.get("/insights")
 async def get_financial_insights(batch_id: str = None):
     if not batch_id:
@@ -228,7 +262,7 @@ async def get_financial_insights(batch_id: str = None):
         
         chat_completion = client.chat.completions.create(
             messages=[{"role": "system", "content": prompt}],
-            model="llama-3.3-70b-versatile",
+            model="qwen/qwen3.8-27b",
             response_format={"type": "json_object"},
             temperature=0.7 
         )

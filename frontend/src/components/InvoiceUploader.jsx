@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import imageCompression from 'browser-image-compression'; // <-- 1. NAYA IMPORT
+import imageCompression from 'browser-image-compression';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -9,7 +9,6 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
   const [singleResult, setSingleResult] = useState(null);
   const [batchMessage, setBatchMessage] = useState("");
   const [loadingText, setLoadingText] = useState("Analyze Invoices");
-
 
   useEffect(() => {
     const savedResult = localStorage.getItem('singleInvoiceResult');
@@ -21,33 +20,32 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
       }
     }
   }, []);
-  useEffect(() => {
-  let interval;
-  
-  if (loading) {
-    // Ye hain tere catchy messages
-    const messages = [
-      "🚀 Beaming your bills to the AI...",
-      "🔍 AI is reading the fine print...",
-      "🧮 Crunching the numbers & taxes...",
-      "☕ Grab a sip, extracting data...",
-      "✨ Almost there! Generating insights..."
-    ];
-    
-    let currentIndex = 0;
-    setLoadingText(messages[0]); // Shuruwat pehle message se
-    
-    // Har 3.5 seconds mein text badlega
-    interval = setInterval(() => {
-      currentIndex = (currentIndex + 1) % messages.length;
-      setLoadingText(messages[currentIndex]);
-    }, 3500); 
-  } else {
-    setLoadingText(`Analyze ${files.length > 0 ? files.length : ''} Invoices`);
-  }
 
-  return () => clearInterval(interval); // Cleanup
-}, [loading, files.length]);
+  useEffect(() => {
+    let interval;
+    
+    if (loading) {
+      const messages = [
+        "🚀 Beaming your bills to the AI...",
+        "🔍 AI is reading the fine print...",
+        "🧮 Crunching the numbers & taxes...",
+        "☕ Grab a sip, extracting data...",
+        "✨ Almost there! Generating insights..."
+      ];
+      
+      let currentIndex = 0;
+      setLoadingText(messages[0]);
+      
+      interval = setInterval(() => {
+        currentIndex = (currentIndex + 1) % messages.length;
+        setLoadingText(messages[currentIndex]);
+      }, 3500); 
+    } else {
+      setLoadingText(`Analyze ${files.length > 0 ? files.length : ''} Invoices`);
+    }
+
+    return () => clearInterval(interval);
+  }, [loading, files.length]);
 
   const handleFileChange = (e) => {
     setFiles(Array.from(e.target.files));
@@ -64,13 +62,11 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
     setLoading(true);
     
     try {
-      // 2. NAYA CODE: Yahan hum har file ko check aur compress kar rahe hain
       const compressedFiles = await Promise.all(
         files.map(async (file) => {
-          // Agar file image hai (PDF nahi hai), toh compress karo
           if (file.type.startsWith('image/')) {
             const options = {
-              maxSizeMB: 1, // File size maximum 1MB rakhega
+              maxSizeMB: 1,
               maxWidthOrHeight: 1920,
               useWebWorker: true,
             };
@@ -78,21 +74,19 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
               console.log(`Original: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
               const compressedFile = await imageCompression(file, options);
               console.log(`Compressed: ${(compressedFile.size / 1024 / 1024).toFixed(2)} MB`);
-              return compressedFile; // Compress hone ke baad file return karo
+              return compressedFile;
             } catch (error) {
               console.error("Compression fail hua:", error);
-              return file; // Agar compress fail ho jaye toh original file hi bhej do
+              return file;
             }
           }
-          return file; // Agar PDF hai toh bina chede wapas kar do
+          return file;
         })
       );
 
-      // Compress ki hui files ko formData mein daal do
       compressedFiles.forEach((file) => formData.append("files", file));
       formData.append("batch_id", newBatchId); 
 
-      // 3. Backend par bhejna
       const response = await fetch(`${API_BASE_URL}/upload-batch`, {
         method: "POST",
         body: formData,
@@ -130,49 +124,95 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
   };
 
   return (
-    <div className="bg-white p-8 rounded-xl shadow-md w-full max-w-2xl mx-auto border border-gray-100">
-      <h2 className="bg-yellow-400 text-2xl font-bold mb-6 text-gray-800 text-center">Scan Your Receipts</h2>
+    <div className="bg-white/80 backdrop-blur-2xl p-6 sm:p-8 rounded-3xl shadow-[0_12px_40px_rgb(0,0,0,0.06)] w-full max-w-2xl mx-auto border border-white/90">
       
-      <div className="border-2 border-dashed border-purple-300 bg-purple-50 p-8 rounded-xl mb-6 text-center hover:bg-purple-100 transition-colors">
+      {/* Title Header */}
+      <div className="text-center mb-6">
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight mb-1.5">
+          Scan Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-700 to-teal-600">Receipts</span>
+        </h2>
+        <p className="text-xs sm:text-sm text-slate-500 font-medium">
+          Upload single or batch invoices for instant AI-powered data extraction
+        </p>
+      </div>
+      
+      {/* Upload Dropzone Box */}
+      <div className="relative border-2 border-dashed border-purple-300/80 bg-gradient-to-b from-purple-50/60 to-white p-6 sm:p-8 rounded-2xl mb-6 text-center hover:border-purple-400 hover:bg-purple-50/80 transition-all duration-300 group shadow-inner">
         <input 
           type="file" 
           multiple
           accept=".pdf, image/jpeg, image/png, image/webp" 
           onChange={handleFileChange} 
-          className="w-full text-sm text-gray-600 file:mr-4 file:py-2.5 file:px-6 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer"
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
         />
+        <div className="flex flex-col items-center justify-center space-y-3 pointer-events-none">
+          <div className="w-14 h-14 rounded-2xl bg-purple-100/80 flex items-center justify-center text-purple-600 group-hover:scale-110 group-hover:bg-purple-200/70 transition-all duration-300 shadow-sm">
+            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+          </div>
+          <div>
+            <p className="text-xs sm:text-sm font-bold text-slate-700">
+              {files.length > 0 ? (
+                <span className="text-purple-700 font-extrabold">{files.length} file(s) ready for analysis</span>
+              ) : (
+                <span><span className="text-purple-600 underline font-semibold">Click to browse</span> or drag and drop files</span>
+              )}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-1 font-medium">Supports PDF, PNG, JPG, or WEBP (Batch processing enabled)</p>
+          </div>
+        </div>
       </div>
 
+      {/* Main Action Button */}
       <button 
         onClick={handleUpload}
         disabled={loading || files.length === 0}
-        className={`w-full font-bold py-3.5 px-4 rounded-xl text-white shadow-lg transition-all ${
-          loading || files.length === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 hover:shadow-purple-500/30'
+        className={`w-full font-bold py-4 px-6 rounded-2xl text-white text-sm sm:text-base shadow-xl transition-all duration-300 active:scale-[0.98] ${
+          loading || files.length === 0 
+            ? 'bg-slate-200 text-slate-400 shadow-none cursor-not-allowed' 
+            : 'bg-gradient-to-r from-purple-600 via-purple-700 to-teal-500 shadow-purple-500/25 hover:shadow-purple-500/40 hover:scale-[1.01]'
         }`}
       >
         {loadingText}
       </button>
 
+      {/* Batch Success Feedback */}
       {batchMessage && (
-        <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700 font-bold text-center">
+        <div className="mt-5 p-4 bg-emerald-50/90 border border-emerald-200/80 rounded-2xl text-emerald-700 font-bold text-xs sm:text-sm text-center shadow-sm">
           {batchMessage}
         </div>
       )}
 
+      {/* Single Result Showcase Card */}
       {singleResult && (
-        <div className="mt-8 p-6 bg-gray-50 border border-gray-200 rounded-xl">
+        <div className="mt-6 p-5 sm:p-6 bg-slate-50/90 border border-slate-200/70 rounded-2xl shadow-sm">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="font-bold text-lg text-green-600">⚡ Extraction Successful!</h3>
-            <span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-bold">
+            <h3 className="font-bold text-sm sm:text-base text-emerald-600 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Extraction Successful!
+            </h3>
+            <span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-xs font-extrabold tracking-wide uppercase">
               {singleResult.category || "Others"}
             </span>
           </div>
           
-          <div className="grid grid-cols-2 gap-4 text-sm text-gray-700 mb-6">
-            <p className="bg-white p-3 rounded shadow-sm border border-gray-100"><strong>Merchant:</strong> <br/>{singleResult.merchant_name || "Unknown"}</p>
-            <p className="bg-white p-3 rounded shadow-sm border border-gray-100"><strong>Date:</strong> <br/>{singleResult.date || "N/A"}</p>
-            <p className="bg-white p-3 rounded shadow-sm border border-gray-100"><strong>Tax:</strong> <br/>₹{singleResult.tax_amount || 0}</p>
-            <p className="bg-white p-3 rounded shadow-sm border border-purple-200 text-purple-700 text-lg font-bold"><strong>Total:</strong> <br/>₹{singleResult.total_amount || 0}</p>
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 text-xs sm:text-sm text-slate-700">
+            <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
+              <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Merchant</span>
+              <p className="font-extrabold text-slate-800 truncate">{singleResult.merchant_name || "Unknown"}</p>
+            </div>
+            <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
+              <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Date</span>
+              <p className="font-extrabold text-slate-800">{singleResult.date || "N/A"}</p>
+            </div>
+            <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
+              <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Tax</span>
+              <p className="font-extrabold text-slate-800">₹{singleResult.tax_amount || 0}</p>
+            </div>
+            <div className="bg-purple-50/70 p-3.5 rounded-xl border border-purple-200/80 shadow-2xs">
+              <span className="text-[10px] sm:text-xs font-bold text-purple-600 uppercase tracking-wider block mb-1">Total Amount</span>
+              <p className="text-base sm:text-lg font-black text-purple-700">₹{singleResult.total_amount || 0}</p>
+            </div>
           </div>
         </div>
       )}
