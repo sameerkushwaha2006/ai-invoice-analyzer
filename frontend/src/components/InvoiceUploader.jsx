@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+// InvoiceUploader.jsx
+import { useState, useEffect, useRef } from 'react';
 import imageCompression from 'browser-image-compression';
+import { Camera, Upload, RefreshCw, X } from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -9,6 +11,11 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
   const [singleResult, setSingleResult] = useState(null);
   const [batchMessage, setBatchMessage] = useState("");
   const [loadingText, setLoadingText] = useState("Analyze Invoices");
+
+  // Camera states
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
 
   useEffect(() => {
     const savedResult = localStorage.getItem('singleInvoiceResult');
@@ -23,7 +30,6 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
 
   useEffect(() => {
     let interval;
-    
     if (loading) {
       const messages = [
         "🚀 Beaming your bills to the AI...",
@@ -32,10 +38,8 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
         "☕ Grab a sip, extracting data...",
         "✨ Almost there! Generating insights..."
       ];
-      
       let currentIndex = 0;
       setLoadingText(messages[0]);
-      
       interval = setInterval(() => {
         currentIndex = (currentIndex + 1) % messages.length;
         setLoadingText(messages[currentIndex]);
@@ -43,7 +47,6 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
     } else {
       setLoadingText(`Analyze ${files.length > 0 ? files.length : ''} Invoices`);
     }
-
     return () => clearInterval(interval);
   }, [loading, files.length]);
 
@@ -53,27 +56,69 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
     setBatchMessage(""); 
   };
 
+  // 1. Camera Start karne ka function
+  const startCamera = async () => {
+    setIsCameraOpen(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } // Mobile ka back camera prefer karega
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      console.error("Camera access error:", err);
+      alert("Camera open nahi ho paya! Permission check karein.");
+      setIsCameraOpen(false);
+    }
+  };
+
+  // 2. Camera Close karne ka function
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject;
+      const tracks = stream.getTracks();
+      tracks.forEach(track => track.stop());
+    }
+    setIsCameraOpen(false);
+  };
+
+  // 3. Live photo click karke file list me add karne ka function
+  const capturePhoto = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const capturedFile = new File([blob], `receipt_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        setFiles([capturedFile]); // Captured photo ko files state me daal diya
+        setSingleResult(null);
+        setBatchMessage("");
+        stopCamera();
+      }
+    }, 'image/jpeg', 0.9);
+  };
+
   const handleUpload = async () => {
-    if (files.length === 0) return alert("Bhai, pehle invoices toh select kar!");
+    if (files.length === 0) return alert("Bhai, pehle invoices toh select ya capture kar!");
 
     const newBatchId = Date.now().toString();
     const formData = new FormData();
-    
     setLoading(true);
     
     try {
       const compressedFiles = await Promise.all(
         files.map(async (file) => {
           if (file.type.startsWith('image/')) {
-            const options = {
-              maxSizeMB: 1,
-              maxWidthOrHeight: 1920,
-              useWebWorker: true,
-            };
+            const options = { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true };
             try {
-              console.log(`Original: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
               const compressedFile = await imageCompression(file, options);
-              console.log(`Compressed: ${(compressedFile.size / 1024 / 1024).toFixed(2)} MB`);
               return compressedFile;
             } catch (error) {
               console.error("Compression fail hua:", error);
@@ -126,43 +171,75 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
   return (
     <div className="bg-white/80 backdrop-blur-2xl p-6 sm:p-8 rounded-3xl shadow-[0_12px_40px_rgb(0,0,0,0.06)] w-full max-w-2xl mx-auto border border-white/90">
       
-      {/* Title Header */}
       <div className="text-center mb-6">
         <h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight mb-1.5">
           Scan Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-700 to-teal-600">Receipts</span>
         </h2>
         <p className="text-xs sm:text-sm text-slate-500 font-medium">
-          Upload single or batch invoices for instant AI-powered data extraction
+          Upload files or capture live photos for instant AI analysis
         </p>
       </div>
       
-      {/* Upload Dropzone Box */}
-      <div className="relative border-2 border-dashed border-purple-300/80 bg-gradient-to-b from-purple-50/60 to-white p-6 sm:p-8 rounded-2xl mb-6 text-center hover:border-purple-400 hover:bg-purple-50/80 transition-all duration-300 group shadow-inner">
-        <input 
-          type="file" 
-          multiple
-          accept=".pdf, image/jpeg, image/png, image/webp" 
-          onChange={handleFileChange} 
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-        />
-        <div className="flex flex-col items-center justify-center space-y-3 pointer-events-none">
-          <div className="w-14 h-14 rounded-2xl bg-purple-100/80 flex items-center justify-center text-purple-600 group-hover:scale-110 group-hover:bg-purple-200/70 transition-all duration-300 shadow-sm">
-            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-xs sm:text-sm font-bold text-slate-700">
-              {files.length > 0 ? (
-                <span className="text-purple-700 font-extrabold">{files.length} file(s) ready for analysis</span>
-              ) : (
-                <span><span className="text-purple-600 underline font-semibold">Click to browse</span> or drag and drop files</span>
-              )}
-            </p>
-            <p className="text-[11px] text-slate-400 mt-1 font-medium">Supports PDF, PNG, JPG, or WEBP (Batch processing enabled)</p>
+      {/* Camera Modal / View */}
+      {isCameraOpen ? (
+        <div className="mb-6 relative bg-black rounded-2xl overflow-hidden shadow-inner flex flex-col items-center">
+          <video ref={videoRef} autoPlay playsInline className="w-full h-64 sm:h-80 object-cover"></video>
+          <canvas ref={canvasRef} className="hidden"></canvas>
+          
+          <div className="absolute bottom-4 flex items-center space-x-4">
+            <button 
+              onClick={capturePhoto}
+              className="bg-white text-purple-700 font-bold px-6 py-3 rounded-full shadow-lg hover:bg-purple-50 transition-all flex items-center gap-2"
+            >
+              <Camera size={18} /> Click Photo
+            </button>
+            <button 
+              onClick={stopCamera}
+              className="bg-red-500/80 backdrop-blur-md text-white p-3 rounded-full hover:bg-red-600 transition-all"
+            >
+              <X size={20} />
+            </button>
           </div>
         </div>
-      </div>
+      ) : (
+        /* Dual Action Options: Upload Box + Camera Button */
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          {/* Upload Dropzone */}
+          <div className="relative border-2 border-dashed border-purple-300/80 bg-gradient-to-b from-purple-50/60 to-white p-5 rounded-2xl text-center hover:border-purple-400 hover:bg-purple-50/80 transition-all duration-300 group shadow-inner flex flex-col items-center justify-center">
+            <input 
+              type="file" 
+              multiple
+              accept=".pdf, image/jpeg, image/png, image/webp" 
+              onChange={handleFileChange} 
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+            />
+            <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center text-purple-600 mb-2 group-hover:scale-110 transition-transform">
+              <Upload size={20} />
+            </div>
+            <p className="text-xs font-bold text-slate-700">
+              {files.length > 0 ? (
+                <span className="text-purple-700">{files.length} file(s) selected</span>
+              ) : (
+                <span><span className="text-purple-600 underline">Browse files</span></span>
+              )}
+            </p>
+          </div>
+
+          {/* Direct Camera Button Card */}
+          <button 
+            onClick={startCamera}
+            className="border-2 border-dashed border-teal-300/80 bg-gradient-to-b from-teal-50/60 to-white p-5 rounded-2xl text-center hover:border-teal-400 hover:bg-teal-50/80 transition-all duration-300 group shadow-inner flex flex-col items-center justify-center cursor-pointer"
+          >
+            <div className="w-10 h-10 rounded-xl bg-teal-100 flex items-center justify-center text-teal-600 mb-2 group-hover:scale-110 transition-transform">
+              <Camera size={20} />
+            </div>
+            <p className="text-xs font-bold text-slate-700">
+              <span className="text-teal-600 underline">Open Camera</span>
+            </p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Click live receipt photo</p>
+          </button>
+        </div>
+      )}
 
       {/* Main Action Button */}
       <button 
@@ -177,14 +254,12 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
         {loadingText}
       </button>
 
-      {/* Batch Success Feedback */}
       {batchMessage && (
         <div className="mt-5 p-4 bg-emerald-50/90 border border-emerald-200/80 rounded-2xl text-emerald-700 font-bold text-xs sm:text-sm text-center shadow-sm">
           {batchMessage}
         </div>
       )}
 
-      {/* Single Result Showcase Card */}
       {singleResult && (
         <div className="mt-6 p-5 sm:p-6 bg-slate-50/90 border border-slate-200/70 rounded-2xl shadow-sm">
           <div className="flex justify-between items-center mb-4">
@@ -197,20 +272,20 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
           </div>
           
           <div className="grid grid-cols-2 gap-3 sm:gap-4 text-xs sm:text-sm text-slate-700">
-            <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
-              <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Merchant</span>
+            <div className="bg-white p-3.5 rounded-xl border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Merchant</span>
               <p className="font-extrabold text-slate-800 truncate">{singleResult.merchant_name || "Unknown"}</p>
             </div>
-            <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
-              <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Date</span>
+            <div className="bg-white p-3.5 rounded-xl border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Date</span>
               <p className="font-extrabold text-slate-800">{singleResult.date || "N/A"}</p>
             </div>
-            <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
-              <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Tax</span>
+            <div className="bg-white p-3.5 rounded-xl border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Tax</span>
               <p className="font-extrabold text-slate-800">₹{singleResult.tax_amount || 0}</p>
             </div>
-            <div className="bg-purple-50/70 p-3.5 rounded-xl border border-purple-200/80 shadow-2xs">
-              <span className="text-[10px] sm:text-xs font-bold text-purple-600 uppercase tracking-wider block mb-1">Total Amount</span>
+            <div className="bg-purple-50/70 p-3.5 rounded-xl border border-purple-200/80">
+              <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider block mb-1">Total Amount</span>
               <p className="text-base sm:text-lg font-black text-purple-700">₹{singleResult.total_amount || 0}</p>
             </div>
           </div>
