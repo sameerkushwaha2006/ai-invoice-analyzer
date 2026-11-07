@@ -56,12 +56,11 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
     setBatchMessage(""); 
   };
 
-  // 1. Camera Start karne ka function
   const startCamera = async () => {
     setIsCameraOpen(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } // Mobile ka back camera prefer karega
+        video: { facingMode: 'environment' } 
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -73,7 +72,6 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
     }
   };
 
-  // 2. Camera Close karne ka function
   const stopCamera = () => {
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject;
@@ -83,7 +81,6 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
     setIsCameraOpen(false);
   };
 
-  // 3. Live photo click karke file list me add karne ka function
   const capturePhoto = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -97,7 +94,7 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
     canvas.toBlob((blob) => {
       if (blob) {
         const capturedFile = new File([blob], `receipt_${Date.now()}.jpg`, { type: 'image/jpeg' });
-        setFiles([capturedFile]); // Captured photo ko files state me daal diya
+        setFiles([capturedFile]);
         setSingleResult(null);
         setBatchMessage("");
         stopCamera();
@@ -144,17 +141,25 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
            onUploadSuccess(newBatchId);
         }
 
-        if (data.successful_uploads && data.successful_uploads.length === 1) {
-          const resultData = data.successful_uploads[0].data;
+        const uploads = data.successful_uploads || data.data || (Array.isArray(data) ? data : []);
+
+        if (uploads.length === 1) {
+          const resultData = uploads[0].data || uploads[0];
           setSingleResult(resultData);
           setBatchMessage("");
           localStorage.setItem('singleInvoiceResult', JSON.stringify(resultData));
-        } else if (data.successful_uploads && data.successful_uploads.length > 1) {
-          setBatchMessage(`✅ ${data.successful_uploads.length} Invoices processed successfully!`);
+        } else if (uploads.length > 1) {
+          setBatchMessage(`✅ ${uploads.length} Invoices processed successfully!`);
           setSingleResult(null);
           localStorage.removeItem('singleInvoiceResult');
         } else {
-          setBatchMessage("⚠️ Koi bhi file sahi se analyse nahi ho paayi.");
+          if (data.merchant_name || data.total_amount) {
+            setSingleResult(data);
+            setBatchMessage("");
+            localStorage.setItem('singleInvoiceResult', JSON.stringify(data));
+          } else {
+            setBatchMessage("⚠️ Koi bhi file sahi se analyse nahi ho paayi.");
+          }
         }
       } else {
         alert(`Backend Error: ${data.detail}`);
@@ -169,8 +174,7 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
   };
 
   return (
-    <div className="bg-white/80 backdrop-blur-2xl p-6 sm:p-8 rounded-3xl shadow-[0_12px_40px_rgb(0,0,0,0.06)] w-full max-w-2xl mx-auto border border-white/90">
-      
+    <div className="bg-white/85 backdrop-blur-2xl p-6 sm:p-8 rounded-3xl shadow-[0_12px_40px_rgb(0,0,0,0.06)] w-full max-w-2xl mx-auto border border-white/90">
       <div className="text-center mb-6">
         <h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight mb-1.5">
           Scan Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-700 to-teal-600">Receipts</span>
@@ -180,7 +184,6 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
         </p>
       </div>
       
-      {/* Camera Modal / View */}
       {isCameraOpen ? (
         <div className="mb-6 relative bg-black rounded-2xl overflow-hidden shadow-inner flex flex-col items-center">
           <video ref={videoRef} autoPlay playsInline className="w-full h-64 sm:h-80 object-cover"></video>
@@ -189,22 +192,20 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
           <div className="absolute bottom-4 flex items-center space-x-4">
             <button 
               onClick={capturePhoto}
-              className="bg-white text-purple-700 font-bold px-6 py-3 rounded-full shadow-lg hover:bg-purple-50 transition-all flex items-center gap-2"
+              className="bg-white text-purple-700 font-bold px-6 py-3 rounded-full shadow-lg hover:bg-purple-50 transition-all flex items-center gap-2 cursor-pointer"
             >
               <Camera size={18} /> Click Photo
             </button>
             <button 
               onClick={stopCamera}
-              className="bg-red-500/80 backdrop-blur-md text-white p-3 rounded-full hover:bg-red-600 transition-all"
+              className="bg-red-500/80 backdrop-blur-md text-white p-3 rounded-full hover:bg-red-600 transition-all cursor-pointer"
             >
               <X size={20} />
             </button>
           </div>
         </div>
       ) : (
-        /* Dual Action Options: Upload Box + Camera Button */
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          {/* Upload Dropzone */}
           <div className="relative border-2 border-dashed border-purple-300/80 bg-gradient-to-b from-purple-50/60 to-white p-5 rounded-2xl text-center hover:border-purple-400 hover:bg-purple-50/80 transition-all duration-300 group shadow-inner flex flex-col items-center justify-center">
             <input 
               type="file" 
@@ -225,7 +226,6 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
             </p>
           </div>
 
-          {/* Direct Camera Button Card */}
           <button 
             onClick={startCamera}
             className="border-2 border-dashed border-teal-300/80 bg-gradient-to-b from-teal-50/60 to-white p-5 rounded-2xl text-center hover:border-teal-400 hover:bg-teal-50/80 transition-all duration-300 group shadow-inner flex flex-col items-center justify-center cursor-pointer"
@@ -241,11 +241,10 @@ const InvoiceUploader = ({ onUploadSuccess }) => {
         </div>
       )}
 
-      {/* Main Action Button */}
       <button 
         onClick={handleUpload}
         disabled={loading || files.length === 0}
-        className={`w-full font-bold py-4 px-6 rounded-2xl text-white text-sm sm:text-base shadow-xl transition-all duration-300 active:scale-[0.98] ${
+        className={`w-full font-bold py-4 px-6 rounded-2xl text-white text-sm sm:text-base shadow-xl transition-all duration-300 active:scale-[0.98] cursor-pointer ${
           loading || files.length === 0 
             ? 'bg-slate-200 text-slate-400 shadow-none cursor-not-allowed' 
             : 'bg-gradient-to-r from-purple-600 via-purple-700 to-teal-500 shadow-purple-500/25 hover:shadow-purple-500/40 hover:scale-[1.01]'

@@ -111,7 +111,7 @@ def analyze_invoice_with_groq(contents: bytes, content_type: str):
                     ],
                 }
             ],
-            model="llama-3.3-70b-versatile",
+            model="qwen/qwen3.8-27b",
             response_format={"type": "json_object"},
             temperature=0.0
         )
@@ -136,7 +136,7 @@ def analyze_invoice_with_groq(contents: bytes, content_type: str):
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": f"Here is the invoice text: \n\n{contents}"}
             ],
-            model="llama-3.3-70b-versatile", 
+            model="qwen/qwen3.8-27b", 
             response_format={"type": "json_object"}, 
             temperature=0.0 
         )
@@ -304,7 +304,7 @@ async def get_financial_insights(batch_id: str = None):
         
         chat_completion = client.chat.completions.create(
             messages=[{"role": "system", "content": prompt}],
-            model="llama-3.3-70b-versatile",
+            model="qwen/qwen3.8-27b",
             response_format={"type": "json_object"},
             temperature=0.7 
         )
