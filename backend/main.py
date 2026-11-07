@@ -7,7 +7,6 @@ import os
 import json
 import io
 import fitz  # PyMuPDF for PDF Text Extraction
-import pytesseract
 import asyncio
 from PIL import Image
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
@@ -17,10 +16,6 @@ from dotenv import load_dotenv
 from passlib.context import CryptContext
 import jwt
 from pydantic import BaseModel
-
-# Smart Fix: Windows aur Linux (Render) ke liye Tesseract path
-if os.name == 'nt':  
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -67,42 +62,80 @@ def extract_text_from_file(contents: bytes, content_type: str) -> str:
             raise Exception(f"PDF se text nikalne mein error: {str(e)}")
             
     elif content_type in ["image/jpeg", "image/png", "image/webp"]:
-        try:
-            image = Image.open(io.BytesIO(contents))
-            extracted_text = pytesseract.image_to_string(image)
-        except Exception as e:
-            raise Exception(f"Image se OCR karne mein error: {str(e)}")
+        # Images ke liye direct Groq Vision multimodal handling hoti hai, 
+        # isliye text extraction ki zaroorat nahi hai, hum base bytes pass karenge.
+        extracted_text = "IMAGE_FILE"
     
     if not extracted_text.strip():
         raise Exception("File mein koi readable text nahi mila.")
         
     return extracted_text
 
-def analyze_invoice_with_groq(invoice_text: str):
-    prompt = """
-    You are an expert FinTech AI. Analyze the following text extracted from an invoice/receipt.
-    Extract the following details:
-    - merchant_name (string)
-    - date (string, format YYYY-MM-DD if possible)
-    - total_amount (number)
-    - tax_amount (number)
-    - items (list of objects with 'item_name' and 'price')
-    - category (String. Strictly choose ONLY ONE from: Food, Travel, Medical, Utilities, Shopping, Entertainment, Others)
+def analyze_invoice_with_groq(contents: bytes, content_type: str):
+    # Agar image hai toh multimodal vision prompt use karein
+    if content_type in ["image/jpeg", "image/png", "image/webp"]:
+        import base64
+        base64_image = base64.b64encode(contents).decode('utf-8')
+        
+        prompt = """
+        You are an expert FinTech AI. Analyze this invoice/receipt image directly.
+        Extract the following details:
+        - merchant_name (string)
+        - date (string, format YYYY-MM-DD if possible)
+        - total_amount (number)
+        - tax_amount (number)
+        - items (list of objects with 'item_name' and 'price')
+        - category (String. Strictly choose ONLY ONE from: Food, Travel, Medical, Utilities, Shopping, Entertainment, Others)
 
-    Return the output STRICTLY as a valid JSON object.
-    """
+        Return the output STRICTLY as a valid JSON object.
+        """
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{content_type};base64,{base64_image}"
+                            },
+                        },
+                    ],
+                }
+            ],
+            model="llama-3.3-70b-versatile",
+            response_format={"type": "json_object"},
+            temperature=0.0
+        )
+        return json.loads(chat_completion.choices[0].message.content)
     
-    chat_completion = client.chat.completions.create(
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"Here is the invoice text: \n\n{invoice_text}"}
-        ],
-        model="qwen/qwen3.8-27b", 
-        response_format={"type": "json_object"}, 
-        temperature=0.0 
-    )
-    
-    return json.loads(chat_completion.choices[0].message.content)
+    else:
+        # PDF ke liye text-based analysis
+        prompt = """
+        You are an expert FinTech AI. Analyze the following text extracted from an invoice/receipt.
+        Extract the following details:
+        - merchant_name (string)
+        - date (string, format YYYY-MM-DD if possible)
+        - total_amount (number)
+        - tax_amount (number)
+        - items (list of objects with 'item_name' and 'price')
+        - category (String. Strictly choose ONLY ONE from: Food, Travel, Medical, Utilities, Shopping, Entertainment, Others)
+
+        Return the output STRICTLY as a valid JSON object.
+        """
+        
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": f"Here is the invoice text: \n\n{contents}"}
+            ],
+            model="llama-3.3-70b-versatile", 
+            response_format={"type": "json_object"}, 
+            temperature=0.0 
+        )
+        
+        return json.loads(chat_completion.choices[0].message.content)
 
 @app.get("/")
 def read_root():
@@ -112,8 +145,11 @@ async def process_single_file(file: UploadFile, batch_id: str):
     try:
         contents = await file.read()
         
-        invoice_text = await asyncio.to_thread(extract_text_from_file, contents, file.content_type)
-        ai_extracted_data = await asyncio.to_thread(analyze_invoice_with_groq, invoice_text)
+        if file.content_type == "application/pdf":
+            extracted_text = await asyncio.to_thread(extract_text_from_file, contents, file.content_type)
+            ai_extracted_data = await asyncio.to_thread(analyze_invoice_with_groq, extracted_text, file.content_type)
+        else:
+            ai_extracted_data = await asyncio.to_thread(analyze_invoice_with_groq, contents, file.content_type)
         
         db_document = ai_extracted_data.copy()
         db_document["uploaded_at"] = datetime.utcnow()
@@ -124,7 +160,7 @@ async def process_single_file(file: UploadFile, batch_id: str):
         return {"status": "success", "filename": file.filename, "data": ai_extracted_data}
         
     except Exception as e:
-        print(f"❌ ASLI ERROR '{file.filename}' MEIN YE HAI: {str(e)}")
+        print(f"❌ ERROR '{file.filename}' MEIN: {str(e)}")
         return {"status": "failed", "filename": file.filename, "reason": str(e)}
 
 @app.post("/upload-batch")
@@ -262,7 +298,7 @@ async def get_financial_insights(batch_id: str = None):
         
         chat_completion = client.chat.completions.create(
             messages=[{"role": "system", "content": prompt}],
-            model="qwen/qwen3.8-27b",
+            model="llama-3.3-70b-versatile",
             response_format={"type": "json_object"},
             temperature=0.7 
         )
