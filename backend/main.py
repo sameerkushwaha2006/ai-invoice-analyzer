@@ -13,22 +13,9 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from groq import Groq
 from dotenv import load_dotenv
-from passlib.context import CryptContext
+import bcrypt
 import jwt
 from pydantic import BaseModel
-
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Pydantic Models for Data Validation
-class UserCreate(BaseModel):
-    name: str
-    email: str
-    password: str
-
-class UserLogin(BaseModel):
-    email: str
-    password: str
 
 load_dotenv()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -37,7 +24,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,6 +36,29 @@ MONGO_URI = os.getenv("MONGO_URI")
 db_client = AsyncIOMotorClient(MONGO_URI)
 db = db_client.invoice_analyzer  
 collection = db.invoices         
+
+# Direct Bcrypt Password Hashing Helpers
+def get_password_hash(password: str) -> str:
+    pwd_bytes = password.encode('utf-8')[:72]  # Bcrypt 72-byte limit safety
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pwd_bytes, salt)
+    return hashed.decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8')[:72], hashed_password.encode('utf-8'))
+    except Exception:
+        return False
+
+# Pydantic Models for Data Validation
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
 
 def extract_text_from_file(contents: bytes, content_type: str) -> str:
     extracted_text = ""
@@ -62,8 +72,6 @@ def extract_text_from_file(contents: bytes, content_type: str) -> str:
             raise Exception(f"PDF se text nikalne mein error: {str(e)}")
             
     elif content_type in ["image/jpeg", "image/png", "image/webp"]:
-        # Images ke liye direct Groq Vision multimodal handling hoti hai, 
-        # isliye text extraction ki zaroorat nahi hai, hum base bytes pass karenge.
         extracted_text = "IMAGE_FILE"
     
     if not extracted_text.strip():
@@ -72,7 +80,6 @@ def extract_text_from_file(contents: bytes, content_type: str) -> str:
     return extracted_text
 
 def analyze_invoice_with_groq(contents: bytes, content_type: str):
-    # Agar image hai toh multimodal vision prompt use karein
     if content_type in ["image/jpeg", "image/png", "image/webp"]:
         import base64
         base64_image = base64.b64encode(contents).decode('utf-8')
@@ -111,7 +118,6 @@ def analyze_invoice_with_groq(contents: bytes, content_type: str):
         return json.loads(chat_completion.choices[0].message.content)
     
     else:
-        # PDF ke liye text-based analysis
         prompt = """
         You are an expert FinTech AI. Analyze the following text extracted from an invoice/receipt.
         Extract the following details:
@@ -198,7 +204,7 @@ async def signup(user: UserCreate):
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    hashed_password = pwd_context.hash(user.password)
+    hashed_password = get_password_hash(user.password)
 
     new_user = {
         "name": user.name,
@@ -213,7 +219,7 @@ async def signup(user: UserCreate):
 async def login(user: UserLogin):
     db_user = await db.users.find_one({"email": user.email})
     
-    if not db_user or not pwd_context.verify(user.password, db_user["password"]):
+    if not db_user or not verify_password(user.password, db_user["password"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     expiration = datetime.utcnow() + timedelta(hours=24) 
